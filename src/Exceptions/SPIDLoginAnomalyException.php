@@ -58,6 +58,6 @@ class SPIDLoginAnomalyException extends SPIDLoginException
      */
     public function getUserMessage(): string
     {
-        return __('spid-auth::messages.anomalies.' . $this->errorCode);
+        return __('spid-auth::messages.errors.' . $this->errorCode);
     }
 }

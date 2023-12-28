@@ -6,7 +6,6 @@
  */
 
 namespace Italia\SPIDAuth;
-
 use Carbon\Carbon;
 use DOMDocument;
 use Exception;
@@ -16,19 +15,28 @@ use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Str;
-use Italia\SPIDAuth\Events\LoginEvent;
-use Italia\SPIDAuth\Events\LogoutEvent;
-use Italia\SPIDAuth\Exceptions\SPIDConfigurationException;
-use Italia\SPIDAuth\Exceptions\SPIDLoginAnomalyException;
-use Italia\SPIDAuth\Exceptions\SPIDLoginException;
-use Italia\SPIDAuth\Exceptions\SPIDLogoutException;
-use Italia\SPIDAuth\Exceptions\SPIDMetadataException;
+use Illuminate\Support\Facades\Auth;
+
+use App\Events\LoginEvent;
+use App\Events\LogoutEvent;
+use App\Exceptions\SPIDConfigurationException;
+use App\Exceptions\SPIDLoginAnomalyException;
+use App\Exceptions\SPIDLoginException;
+use App\Exceptions\SPIDLogoutException;
+use App\Exceptions\SPIDMetadataException;
+
 use OneLogin\Saml2\Auth as SAMLAuth;
+use OneLogin\Saml2\Constants;
 use OneLogin\Saml2\Constants as SAMLConstants;
 use OneLogin\Saml2\Error as SAMLError;
+use OneLogin\Saml2\Utils;
 use OneLogin\Saml2\Utils as SAMLUtils;
 use OneLogin\Saml2\ValidationError as SAMLValidationError;
 use RuntimeException;
+use App\Customer;
+use App\UserMetadata;
+use Illuminate\Support\Facades\Crypt;
+
 
 class SPIDAuth extends Controller
 {
@@ -45,13 +53,14 @@ class SPIDAuth extends Controller
      * @return \Illuminate\Support\Facades\View display the page for the Identity Provider selection, if not authenticated
      * @return Response redirect to the intended or configured URL if authenticated
      */
-    public function login()
+    public function login($event)
     {
         if (!$this->isAuthenticated()) {
             return view(config('spid-auth.login_view'));
         }
 
-        return redirect()->intended(config('spid-auth.after_login_url'));
+//        return redirect()->intended(config('spid-auth.after_login_url'));
+        return redirect()->intended(config('spid-auth.user_dashboard'));
     }
 
     /**
@@ -61,17 +70,20 @@ class SPIDAuth extends Controller
      */
     public function doLogin(): RedirectResponse
     {
+
         if (!$this->isAuthenticated()) {
             $idp = request('provider');
             $this->checkIdp($idp);
 
             $relayState = $this->getRandomString();
             $idpRedirectTo = $this->getSAML($idp)->login($relayState, [], true, false, true);
+
             $requestDocument = new DOMDocument();
             SAMLUtils::loadXML($requestDocument, $this->getSAML($idp)->getLastRequestXML());
+
             $requestIssueInstant = $requestDocument->documentElement->getAttribute('IssueInstant');
             $lastRequestId = $this->getSAML($idp)->getLastRequestID();
-
+            Cookie::queue('customerIDRef', session()->get('customerIDRef'), 10, null, null, true, true, false, 'none');
             Cookie::queue('spid_idp', $idp, 10, null, null, true, true, false, 'none');
             Cookie::queue('spid_lastRequestId', $lastRequestId, 10, null, null, true, true, false, 'none');
             Cookie::queue('spid_lastRequestIssueInstant', $requestIssueInstant, 10, null, null, true, true, false, 'none');
@@ -81,11 +93,11 @@ class SPIDAuth extends Controller
                     'url.intended' => session('url.intended'),
                 ]], 300);
             }
-
             return redirect($idpRedirectTo);
         }
 
-        return redirect()->intended(config('spid-auth.after_login_url'));
+//        return redirect()->intended(config('spid-auth.after_login_url'));
+        return redirect()->intended(config('spid-auth.user_dashboard'));
     }
 
     /**
@@ -101,12 +113,14 @@ class SPIDAuth extends Controller
      */
     public function acs(): RedirectResponse
     {
+
         $lastRequestId = Cookie::get('spid_lastRequestId') ?? '';
         $lastRequestIssueInstant = Cookie::get('spid_lastRequestIssueInstant') ?? '';
         $idp = Cookie::get('spid_idp') ?? '';
         Cookie::queue(Cookie::forget('spid_lastRequestId'));
         Cookie::queue(Cookie::forget('spid_lastRequestIssueInstant'));
         Cookie::queue(Cookie::forget('spid_idp'));
+        $customerIDRef = Cookie::get('customerIDRef');
 
         $this->checkIdp($idp);
 
@@ -116,7 +130,7 @@ class SPIDAuth extends Controller
 
         try {
             $this->getSAML($idp)->processResponse($lastRequestId);
-        } catch (SAMLError|SAMLValidationError $e) {
+        } catch (SAMLError | SAMLValidationError $e) {
             throw new SPIDLoginException('SAML response validation error: ' . $e->getMessage(), SPIDLoginException::SAML_VALIDATION_ERROR, $e);
         }
 
@@ -129,6 +143,7 @@ class SPIDAuth extends Controller
             $this->checkAnomalies($lastErrorReason);
             throw new SPIDLoginException('SAML response validation error: ' . $lastErrorReason, SPIDLoginException::SAML_VALIDATION_ERROR);
         }
+
         if (cache()->has($assertionId)) {
             throw new SPIDLoginException('SAML response validation error: assertion with id ' . $assertionId . ' was already processed', SPIDLoginException::SAML_RESPONSE_ALREADY_PROCESSED);
         }
@@ -162,11 +177,25 @@ class SPIDAuth extends Controller
         $SPIDUser = new SPIDUser($attributes);
         $idpEntityName = $this->getIdpEntityName($lastResponseXML);
 
+        // Generiamo l'unico codice univoco necessario per fare l'accesso che a differenza degl'altri valori
+        // è codificato in sha256 mentre il resto è un crypt differente
+        $secureCode = hash("sha256",$SPIDUser->fiscalNumber);
+        $user = UserMetadata::where('secure_code', $secureCode)->first();
+        if($user) {
+            Auth::loginUsingId($user->id);
+        }
+
+
+        // Configurazione delle sessioni SPID
         session(['spid_idp' => $idp]);
         session(['spid_idpEntityName' => $idpEntityName]);
+        /*session(['spid_sessionIndex' => $this->getSAML($idp)->getSessionIndex()]);*/
         session(['spid_sessionId' => $this->getSAML($idp)->getLastMessageId()]);
         session(['spid_nameId' => $this->getSAML($idp)->getNameId()]);
         session(['spid_user' => $SPIDUser]);
+        session(['type_of_auth' => 'SPID']);
+        // Configuriamo il valore fondamentale per il controllo del cliente a noi associato
+        session(['customerMetaID' => $customerIDRef]);
 
         event(new LoginEvent($SPIDUser, session('spid_idpEntityName')));
 
@@ -177,7 +206,11 @@ class SPIDAuth extends Controller
             session(cache()->pull($relayState));
         }
 
-        return redirect()->intended(config('spid-auth.after_login_url'));
+        if($user) {
+            Auth::login($user);
+        }
+//        return redirect()->intended(config('spid-auth.after_login_url'));
+        return redirect()->intended(config('spid-auth.user_dashboard'));
     }
 
     /**
@@ -225,7 +258,7 @@ class SPIDAuth extends Controller
 
             try {
                 $this->getSAML($idp)->processSLO();
-            } catch (SAMLError|SAMLValidationError $e) {
+            } catch (SAMLError | SAMLValidationError $e) {
                 throw new SPIDLogoutException('SAML response validation error: ' . $e->getMessage(), SPIDLogoutException::SAML_VALIDATION_ERROR, $e);
             }
 
@@ -259,82 +292,104 @@ class SPIDAuth extends Controller
      *
      * @return Response XML metadata of this Service Provider
      */
-    public function metadata(): Response
+    public function metadata($id = null, $slug_route = null): Response
     {
         if (!config('spid-auth.expose_sp_metadata')) {
             abort(404);
         }
 
+        $cMeta ='';
+//         We need to generate the dedicated SPID/Metadata
+        if($id){
+            // Check if the Customer is active
+            $customer = Customer::query()->where(['id'=>$id,'status'=>1])->firstOrFail();
+            if(isset($customer)){
+                $cMeta = CustomersMetadata::query()->where('customer_id',$id)->whereNotNull('sp_entity_id')->firstOrFail();
+            }
+        }
+
         try {
-            $settings = $this->getSAML(null)->getSettings();
+            $settings = $this->getSAML(null, $id, $slug_route)->getSettings();
+            // We get the Metadata form SAML
             $metadata = $settings->getSPMetadata();
 
             if (!$metadata) {
                 throw new RuntimeException('error');
             }
-
             $metadata = str_replace('xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"', 'xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" xmlns:spid="https://spid.gov.it/saml-extensions"', $metadata);
+
             $document = new DOMDocument();
             $document->loadXML($metadata);
 
             $contacts = config('spid-auth.sp_contact_persons');
+
             $root = $document->documentElement;
             foreach ($contacts as $type => $contact) {
+
                 $cp = $document->createElement('md:ContactPerson');
-                $cp->setAttribute('contactType', $type);
-
+                $cp->setAttribute('contactType', 'other');
+                $cp->setAttribute('spid:entityType', 'spid:'.$type);
                 $extensions = $document->createElement('md:Extensions');
-                $isPrivate = $contact['Private'] ?? null;
-                $isPublic = $contact['Public'] ?? null;
+                /*
+                 * $isPrivate = $contact['Private'] ?? null;
+                 * $isPublic = $contact['Public'] ?? null;
+                */
+                /* Ipotizziamo siano solo pubblica amministrazione per un eventuale integrazione dei privati si provvederò ad ulteriore integrazione */
+                $isPublic = ($type == 'aggregated')? true : false;
 
-                if ($isPrivate) {
-                    $extensions->appendChild($document->createElement('spid:Private'));
-                    $extensions->appendChild($document->createElement('spid:VATNumber', $contact['VATNumber']));
-                    if ($fiscalCode = $contact['FiscalCode'] ?? null) {
-                        $extensions->appendChild($document->createElement('spid:FiscalCode', $fiscalCode));
-                    }
-                }
+                /*                if ($isPrivate) {
+                                    $extensions->appendChild($document->createElement('spid:Private'));
+                                    $extensions->appendChild($document->createElement('spid:VATNumber', $contact['VATNumber']));
+                                    if ($fiscalCode = $contact['FiscalCode'] ?? null) {
+                                        $extensions->appendChild($document->createElement('spid:FiscalCode', $fiscalCode));
+                                    }
+                                }*/
 
                 if ($isPublic) {
                     $extensions->appendChild($document->createElement('spid:Public'));
                     $extensions->appendChild($document->createElement('spid:IPACode', $contact['IPACode']));
+                }else{
+                    $extensions->appendChild($document->createElement('spid:PublicServicesFullAggregator'));
+                    $extensions->appendChild($document->createElement('spid:VATNumber', $contact['VATNumber']));
+                    $extensions->appendChild($document->createElement('spid:FiscalCode', $contact['FiscalCode']));
                 }
+                /* Utilizzo solo in caso di ente privato */
+                /*                if ($cessionarioCommittente = $contact['CessionarioCommittente'] ?? null) {
+                                    $cessionarioCommittenteNode = $document->createElement('spid:CessionarioCommittente');
 
-                if ($cessionarioCommittente = $contact['CessionarioCommittente'] ?? null) {
-                    $cessionarioCommittenteNode = $document->createElement('spid:CessionarioCommittente');
+                                    if ($datiAnagrafici = $cessionarioCommittente['DatiAnagrafici'] ?? null) {
+                                        $datiAnagraficiNode = $document->createElement('spid:DatiAnagrafici');
+                                        if ($idFiscaleIVA = $datiAnagrafici['IdFiscaleIVA'] ?? null) {
+                                            $datiAnagraficiNode->appendChild($document->createElement('spid:IdPaese', $idFiscaleIVA['IdPaese']));
+                                            $datiAnagraficiNode->appendChild($document->createElement('spid:IdCodice', $idFiscaleIVA['IdCodice']));
+                                        }
 
-                    if ($datiAnagrafici = $cessionarioCommittente['DatiAnagrafici'] ?? null) {
-                        $datiAnagraficiNode = $document->createElement('spid:DatiAnagrafici');
-                        if ($idFiscaleIVA = $datiAnagrafici['IdFiscaleIVA'] ?? null) {
-                            $datiAnagraficiNode->appendChild($document->createElement('spid:IdPaese', $idFiscaleIVA['IdPaese']));
-                            $datiAnagraficiNode->appendChild($document->createElement('spid:IdCodice', $idFiscaleIVA['IdCodice']));
-                        }
+                                        if ($anagrafica = $datiAnagrafici['Anagrafica'] ?? null) {
+                                            $anagraficaNode = $datiAnagraficiNode->appendChild($document->createElement('spid:Anagrafica'));
+                                            $anagraficaNode->appendChild($document->createElement('spid:Denominazione', $anagrafica['Denominazione']));
+                                            $datiAnagraficiNode->appendChild($anagraficaNode);
+                                        }
 
-                        if ($anagrafica = $datiAnagrafici['Anagrafica'] ?? null) {
-                            $anagraficaNode = $datiAnagraficiNode->appendChild($document->createElement('spid:Anagrafica'));
-                            $anagraficaNode->appendChild($document->createElement('spid:Denominazione', $anagrafica['Denominazione']));
-                            $datiAnagraficiNode->appendChild($anagraficaNode);
-                        }
+                                        $cessionarioCommittenteNode->appendChild($datiAnagraficiNode);
 
-                        $cessionarioCommittenteNode->appendChild($datiAnagraficiNode);
+                                        $extensions->appendChild($cessionarioCommittenteNode);
+                                    }
 
-                        $extensions->appendChild($cessionarioCommittenteNode);
-                    }
+                                    if ($sede = $cessionarioCommittente['Sede'] ?? null) {
+                                        $sedeNode = $document->createElement('spid:Sede');
+                                        $sedeNode->appendChild($document->createElement('spid:Indirizzo', $sede['Indirizzo']));
+                                        $sedeNode->appendChild($document->createElement('spid:NumeroCivico', $sede['NumeroCivico']));
+                                        $sedeNode->appendChild($document->createElement('spid:CAP', $sede['CAP']));
+                                        $sedeNode->appendChild($document->createElement('spid:Comune', $sede['Comune']));
+                                        $sedeNode->appendChild($document->createElement('spid:Provincia', $sede['Provincia']));
+                                        $sedeNode->appendChild($document->createElement('spid:Nazione', $sede['Nazione']));
 
-                    if ($sede = $cessionarioCommittente['Sede'] ?? null) {
-                        $sedeNode = $document->createElement('spid:Sede');
-                        $sedeNode->appendChild($document->createElement('spid:Indirizzo', $sede['Indirizzo']));
-                        $sedeNode->appendChild($document->createElement('spid:NumeroCivico', $sede['NumeroCivico']));
-                        $sedeNode->appendChild($document->createElement('spid:CAP', $sede['CAP']));
-                        $sedeNode->appendChild($document->createElement('spid:Comune', $sede['Comune']));
-                        $sedeNode->appendChild($document->createElement('spid:Provincia', $sede['Provincia']));
-                        $sedeNode->appendChild($document->createElement('spid:Nazione', $sede['Nazione']));
+                                        $extensions->appendChild($sedeNode);
+                                    }
+                                }*/
 
-                        $extensions->appendChild($sedeNode);
-                    }
-                }
                 $cp->appendChild($extensions);
-
+                $cp->appendChild($document->createElement('md:Company', $contact['Company']));
                 $cp->appendChild($document->createElement('md:EmailAddress', $contact['EmailAddress']));
 
                 if ($telephoneNumber = $contact['TelephoneNumber'] ?? null) {
@@ -352,11 +407,16 @@ class SPIDAuth extends Controller
             $key = $settings->getSPkey();
             $cert = $settings->getSPcert();
             $metadata = $document->saveXML();
+
             $metadata = SAMLUtils::addSign($metadata, $key, $cert);
         } catch (Exception $e) {
+            if($e->getStatusCode() == 404){
+                abort(404);
+            }
             throw new SPIDMetadataException('Invalid SP metadata: ' . $e->getMessage(), 0, $e);
         }
 
+        /*        $errors = $this->getSAML(null)->getSettings()->validateMetadata($metadata);*/
         return response($metadata, '200')->header('Content-Type', 'text/xml');
     }
 
@@ -398,8 +458,9 @@ class SPIDAuth extends Controller
     protected function checkIdp($idp): void
     {
         $idps = $this->getIdps();
-        unset($idps['empty']);
 
+        unset($idps['empty']);
+//        dd([$idp,$idps]);
         if (empty($idp) || !is_string($idp)) {
             throw new SPIDLoginException('Malformed request: idp value not present or wrong (this is likely due to a non-https request)', SPIDLoginException::MALFORMED_IDP_IN_USER_REQUEST);
         }
@@ -543,7 +604,9 @@ class SPIDAuth extends Controller
 
         if (!config('spid-auth.test_idp')) {
             unset($idps['test']);
+
         } else {
+
             $idps['test']['entityId'] = config('spid-auth.test_idp.entityId');
             $idps['test']['singleSignOnService']['url'] = config('spid-auth.test_idp.sso_endpoint');
             $idps['test']['singleLogoutService']['url'] = config('spid-auth.test_idp.slo_endpoint');
@@ -558,7 +621,6 @@ class SPIDAuth extends Controller
             $idps['validator']['singleLogoutService']['url'] = config('spid-auth.validator_idp.slo_endpoint');
             $idps['validator']['x509cert'] = config('spid-auth.validator_idp.x509cert');
         }
-
         return $idps;
     }
 
@@ -667,17 +729,50 @@ class SPIDAuth extends Controller
      *
      * @return array configuration array for SAMLAuth
      */
-    protected function getSAMLConfig(string $idp): array
+    protected function getSAMLConfig(string $idp, int $customer_id = null, string $slug_route = null): array
     {
+        $cMeta='';
         $configStatus = $this->isConfigured();
 
         if (true !== $configStatus) {
             throw new SPIDConfigurationException($configStatus);
         }
+        $customerIDRef_cookie = Cookie::get('customerIDRef');
+        $customerIDRef_session = session()->get('customerIDRef');
+
+        $customerMetaID = ($customerIDRef_session)? $customerIDRef_session :$customerIDRef_cookie;
+
+        $customer_id = ($customerMetaID)?$customerMetaID:$customer_id;
+
+        if(($idp != 'empty') || ((isset($customer_id))&&(isset($slug_route)))){
+            $cMeta = CustomersMetadata::query()->where('customer_id',$customer_id)->whereNotNull('sp_entity_id')->first();
+            if($idp != 'empty'){
+                $customerInfo = Customer::query()->where('id',$customer_id)->first();
+            }else{
+                $customerInfo = Customer::query()->where('slug_route',$slug_route)->where('id',$customer_id)->first();
+            }
+            if(($idp != 'empty')||(($cMeta->shareMetadata)&&($customerInfo)) ){
+
+                config(['spid-auth.sp_entity_id'    => $cMeta->sp_entity_id]);
+                config(['spid-auth.sp_base_url'     => $cMeta->sp_base_url]);
+                config(['spid-auth.sp_service_name' => $cMeta->sp_service_name]);
+                config(['spid-auth.sp_organization_name' => $cMeta->sp_organization_name]);
+                config(['spid-auth.sp_organization_display_name' => $cMeta->sp_organization_display_name]);
+                config(['spid-auth.sp_organization_url' => $cMeta->sp_organization_url]);
+                config(['spid-auth.sp_spid_level' => 'https://www.spid.gov.it/'.$cMeta->sp_spid_level]);
+                // SPID ContactPerson - Cliente
+                config(['spid-auth.sp_contact_persons.aggregated.IPACode' => $cMeta->sp_IPACode]);
+                config(['spid-auth.sp_contact_persons.aggregated.Company' => $cMeta->sp_organization_name]);
+                config(['spid-auth.sp_contact_persons.aggregated.EmailAddress' => $customerInfo->email ]);
+
+                config(['spid-saml.sp.entityId' => $cMeta->sp_entity_id]);
+            }else{
+                return abort(404);
+            }
+        }
 
         $config = config('spid-saml');
 
-        $config['sp']['entityId'] = config('spid-auth.sp_entity_id');
         $config['sp']['attributeConsumingService']['serviceName'] = config('spid-auth.sp_service_name');
         $config['sp']['assertionConsumerService']['url'] = config('spid-auth.sp_base_url') . '/' . config('spid-auth.routes_prefix') . '/acs';
         $config['sp']['singleLogoutService']['url'] = config('spid-auth.sp_base_url') . '/' . config('spid-auth.routes_prefix') . '/logout';
@@ -721,10 +816,15 @@ class SPIDAuth extends Controller
         $config['organization']['it']['displayname'] = $config['organization']['en']['displayname'] = config('spid-auth.sp_organization_display_name');
         $config['organization']['it']['url'] = $config['organization']['en']['url'] = config('spid-auth.sp_organization_url');
 
+        /*        config(['spid-auth.sp_contact_persons.aggregator.VATNumber' => $cMeta->sp_entity_id]);
+                config(['spid-auth.sp_contact_persons.aggregator.FiscalCode' => $cMeta->sp_entity_id]);
+                config(['spid-auth.sp_contact_persons.aggregator.Company' => $cMeta->sp_entity_id]);
+                config(['spid-auth.sp_contact_persons.aggregator.EmailAddress' => $cMeta->sp_entity_id]);
+                config(['spid-auth.sp_contact_persons.aggregator.TelephoneNumber' => $cMeta->sp_entity_id]);*/
+
         $idps = $this->getIdps();
 
         $config['idp'] = $idps[$idp];
-
         return $config;
     }
 
@@ -733,12 +833,11 @@ class SPIDAuth extends Controller
      *
      * @return SAMLAuth SAML instance configured for the current selected Identity Provider
      */
-    protected function getSAML(?string $idp): SAMLAuth
+    protected function getSAML(?string $idp, int $customer_id = null, string $slug_route = null): SAMLAuth
     {
         if (empty($this->saml) || $this->saml->getSettings()->getIdPData()['provider'] !== $idp) {
-            $this->saml = new SAMLAuth($this->getSAMLConfig($idp ?? 'empty'));
+            $this->saml = new SAMLAuth($this->getSAMLConfig($idp ?? 'empty',$customer_id,$slug_route));
         }
-
         return $this->saml;
     }
 
