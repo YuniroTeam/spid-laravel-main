@@ -5,9 +5,9 @@
  * @license BSD-3-clause
  */
 
-namespace Italia\SPIDAuth\Events;
+namespace App\Events;
 
-use Italia\SPIDAuth\SPIDUser;
+use App\SPIDUser;
 
 class LoginEvent
 {

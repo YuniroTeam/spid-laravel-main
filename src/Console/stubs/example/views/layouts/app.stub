@@ -1,43 +1,28 @@
-@inject('SPIDAuth', 'SPIDAuth')
-
 <!DOCTYPE html>
-<html lang="{{ app()->getLocale() }}">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- CSRF Token -->
-    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{{__(config('app.name'))}}</title>
 
-    <title>{{ config('app.name', 'SPIDAuth') }}</title>
-
-    <!-- Styles -->
-    <link href="{{ asset('css/app.css') }}" rel="stylesheet">
-    <link type="text/css" rel="stylesheet" href="{{ asset('/vendor/spid-auth/css/spid-sp-access-button.min.css') }}">
+    <link rel="stylesheet" href="{{asset ('css/app.css')}}">
+    @yield("css")
 </head>
-<body>
-    <div id="app" class="flex-center position-ref full-height">
-        <nav class="navbar navbar-expand-md navbar-light navbar-laravel">
-            <div class="container">
-                <ul class="navbar-nav mr-auto">
-                    <li class="nav-link"><a href="{{ url('/') }}">Home</a></li>
-                    @if ($SPIDAuth->isAuthenticated())
-                    <li class="nav-link"><a href="{{ route('spid-auth_logout') }}">Logout</a></li>
-                    @else
-                    <li class="nav-link"><a href="{{ route('spid-auth_login') }}">Login</a></li>
-                    @endif
-                    <li class="nav-link"><a href="{{ route('private') }}">Private area</a></li>
-                </ul>
-            </div>
-        </nav>
-        <main class="py-4">
-            @yield('content')
-        </main>
-    </div>
+<body id="app-layout">
+<div style="background-color: #5c88a75e;">
+    @yield('content')
+</div>
 
-    <!-- Scripts -->
-    <script src="{{ asset('js/app.js') }}"></script>
-    @stack('scripts')
+
+
+<script>window.__PUBLIC_PATH__ = '{{ asset('vendor/bootstrap-italia/dist/fonts') }}'</script>
+<script src="{{asset('js/app.js')}}"></script>
+<!-- add jquery before bootstrap -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js" crossorigin="anonymous"></script>
+<script src="{{asset('js/bootstrap-italia.bundle.min.js')}}"></script>
+<script src="{{asset('js/main.js')}}"></script>
+
 </body>
 </html>
