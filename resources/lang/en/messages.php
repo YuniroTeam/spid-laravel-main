@@ -24,4 +24,5 @@ return [
         22 => 'refused consent to the transmission of data required for the service',
         23 => 'user with suspended/revoked identity or with blocked credentials',
         25 => 'authentication process cancelled by the user',
+    ]
 ];

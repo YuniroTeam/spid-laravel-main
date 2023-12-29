@@ -6,12 +6,18 @@
  */
 
 return [
+    'error' => "Codice Errore: ",
     'spid_login' => "Effettua l'accesso con SPID",
     'spid_access_required' => "La risorsa richiesta richiede l'accesso con SPID.",
     'return_home' => 'ritorna alla pagina iniziale',
     'or' => 'oppure',
-
-    'anomalies' => [
+    'spid_anomalies' => "Anomalia SPID",
+    'errors' => [
+        0 => 'attenzione si è verificato un errore',
+        4 => 'attenzione si è verificato un errore, contattare il gestore del servizio',
+        5 => 'attenzione si è verificato un errore, contattare il gestore del servizio',
+        6 => 'attenzione si è verificato un errore, contattare il gestore del servizio',
+        7 => 'attenzione si è verificato un errore, contattare il gestore del servizio',
         19 => 'autenticazione fallita per ripetuto inserimento di credenziali errate',
         20 => 'utente privo di credenziali compatibili con il livello SPID richiesto',
         21 => 'tempo scaduto durante il processo di autenticazione',

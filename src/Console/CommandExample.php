@@ -52,16 +52,6 @@ class CommandExample extends Command
         $this->exportViews();
 
         file_put_contents(
-            app_path('Http/Controllers/HomeController.php'),
-            $this->compileStub('controllers/HomeController')
-        );
-
-        file_put_contents(
-            app_path('Http/Controllers/PrivateController.php'),
-            $this->compileStub('controllers/PrivateController')
-        );
-
-        file_put_contents(
             app_path('Listeners/SPIDEventSubscriber.php'),
             $this->compileStub('listeners/SPIDEventSubscriber')
         );

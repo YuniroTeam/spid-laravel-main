@@ -1,13 +1,17 @@
 {
-  "name": "italia/spid-laravel",
+  "name": "yuniro/spid-laravel",
   "description": "Laravel Package for SPID authentication",
   "keywords": ["SPID", "Laravel", "PHP"],
-  "homepage": "https://github.com/italia/spid-laravel",
+  "homepage": "https://github.com/YuniroTeam/spid-laravel-main",
   "license": "BSD-3-Clause",
   "authors": [
     {
       "name": "Davide Porrovecchio - Agenzia per l'Italia Digitale",
       "email": "davide.porrovecchio@agid.gov.it"
+    },
+    {
+      "name": "Nassim Davide Sidaoui - Yuniro srl",
+      "email": "n.sidaoui@yuniro.it"
     }
   ],
   "require": {
@@ -28,18 +32,18 @@
   },
   "autoload": {
     "psr-4": {
-      "Italia\\SPIDAuth\\": "src/"
+      "Yuniro\\Spid\\": "src/"
     }
   },
   "autoload-dev": {
     "psr-4": {
-      "Italia\\SPIDAuth\\Tests\\": "tests/"
+      "Yuniro\\Spid\\Tests\\": "tests/"
     }
   },
   "extra": {
     "laravel": {
         "providers": [
-            "Italia\\SPIDAuth\\ServiceProvider"
+            "Yuniro\\Spid\\ServiceProvider"
         ]
     },
     "patches": {
