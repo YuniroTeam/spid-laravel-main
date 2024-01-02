@@ -24,6 +24,9 @@ class ServiceProvider extends LaravelServiceProvider
         $configAuth = dirname(__DIR__) . '/config/spid-auth.php';
         $configSAML = dirname(__DIR__) . '/config/spid-saml.php';
         $configIdps = dirname(__DIR__) . '/config/spid-idps.php';
+        $routeAuth = dirname(__DIR__) . '/routes/spid-auth.php';
+        $lang = dirname(__DIR__) . '/resources/lang';
+
         $assets = dirname(__DIR__) . '/resources/assets';
         $exceptions = dirname(__DIR__) . '/src/exceptions';
         $events = dirname(__DIR__) . '/src/Events';
@@ -44,6 +47,8 @@ class ServiceProvider extends LaravelServiceProvider
             $configAuth => config_path('spid-auth.php'),
             $configSAML => config_path('spid-saml.php'),
             $configIdps => config_path('spid-idps.php'),
+            $routeAuth => base_path('routes/spid-auth.php'),
+            $lang => resource_path('lang/vendor/spid-auth'),
             $assets => public_path('vendor/spid-auth'),
             $serviceProvider => app_path('Providers/SPIDServiceProvider.php'),
             $exceptions => app_path('Exceptions'),
