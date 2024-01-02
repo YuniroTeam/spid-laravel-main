@@ -1,0 +1,170 @@
+<?php
+
+namespace {{namespace}}Listeners;
+
+use App\UserAddress;
+use App\UserMetadata;
+use App\UserAnagrafica;
+use App\LogActivity;
+use App\Events\LoginEvent;
+use App\Events\LogoutEvent;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\DB;
+use Log;
+
+class SPIDEventSubscriber
+{
+    /**
+     * Handle SPID login events.
+     *
+     */
+    public function onSPIDLogin($event) {
+
+        Log::info('SPID User ' . $event->getSPIDUser()->name . ' ' . $event->getSPIDUser()->familyName .' logged in using ' . $event->getIdp() . ' Identity Provider.');
+        $secureCode = hash("sha256",$event->getSPIDUser()->fiscalNumber);
+        $UserMetadatacheck=UserMetadata::where('secure_code', $secureCode)->first();
+        /** Manca tutto il controllo in caso di un metadata differente da quello registrato nel sistema  **/
+
+        if (!$UserMetadatacheck) {
+            $UserMetadata=UserMetadata::create(
+                ['name'=>$event->getSPIDUser()->name,
+                    'familyname'=>$event->getSPIDUser()->familyName,
+                    'placeofbirth'=>$event->getSPIDUser()->placeOfBirth,
+                    'countryofbirth'=>$event->getSPIDUser()->countyOfBirth,
+                    'dateofbirth'=>$event->getSPIDUser()->dateOfBirth,
+                    'gender'=>$event->getSPIDUser()->gender,
+                    'email'=>$event->getSPIDUser()->email,
+//                    'address'=>$event->getSPIDUser()->address,
+                    'domicileStreetAddress'=>$event->getSPIDUser()->domicileStreetAddress,
+                    'domicilePostalCode'=>$event->getSPIDUser()->domicilePostalCode,
+                    'domicileMunicipality'=>$event->getSPIDUser()->domicileMunicipality,
+                    'domicileProvince'=>$event->getSPIDUser()->domicileProvince,
+                    'domicileNation'=>$event->getSPIDUser()->domicileNation,
+                    'digitaladdress'=>$event->getSPIDUser()->digitalAddress,
+                    'expirationdate'=>$event->getSPIDUser()->expirationDate,
+                    'codicefiscale'=>$event->getSPIDUser()->fiscalNumber,
+                    'spidCode'=>$event->getSPIDUser()->spidCode,
+                    'cellulare'=>$event->getSPIDUser()->cellulare,
+                    'pec'=>$event->getSPIDUser()->pec,
+                    'secure_code'=> $secureCode
+                ]
+            );
+
+			if($UserMetadata){
+                session()->put('user_id',$UserMetadata->id);
+                session()->put('codicefiscale',$UserMetadata->codicefiscale);
+                session()->put('name',$UserMetadata->name);
+                session()->put('familyname',$UserMetadata->familyname);
+
+                // Controlliamo se l'utente è nato in italia
+                $statoDiNascita = (($UserMetadata->countyOfBirth)=='EE')?'EE':'Italia';
+                $UserAnagrafica= UserAnagrafica::create([
+                    'user_id'=>$UserMetadata->id,
+                    'name'=>$event->getSPIDUser()->name,
+                    'familyname'=>$event->getSPIDUser()->familyName,
+                    'gender'=>$event->getSPIDUser()->gender,
+                    'email'=>$event->getSPIDUser()->email,
+                    'codicefiscale'=>$event->getSPIDUser()->fiscalNumber,
+                    'datadinascita'=>$event->getSPIDUser()->dateOfBirth,
+                    'provdinascita'=>$event->getSPIDUser()->countyOfBirth,
+                    'comunedinascita'=>$event->getSPIDUser()->placeOfBirth,
+                    'statodinascita'=>$statoDiNascita,
+                    'Res_As_Dom'=>1,
+                    'secure_code'=> $secureCode
+                ]);
+                if($UserAnagrafica){
+                    $UserAddress= UserAddress::create([
+                        'user_id'=>$UserAnagrafica->id,
+                        'typo'=>'domicilio',
+                        'indirizzo'=>$event->getSPIDUser()->domicileStreetAddress,
+                        'cap'=>$event->getSPIDUser()->domicilePostalCode,
+                        'citta'=>$event->getSPIDUser()->domicileMunicipality,
+                        'prov'=>$event->getSPIDUser()->domicileProvince,
+                        'stato'=>$event->getSPIDUser()->domicileNation,
+                    ]);
+                    $UserAddressrez= UserAddress::create([
+                        'user_id'=>$UserAnagrafica->id,
+                        'typo'=>'residenza',
+                        'indirizzo'=>$event->getSPIDUser()->domicileStreetAddress,
+                        'cap'=>$event->getSPIDUser()->domicilePostalCode,
+                        'citta'=>$event->getSPIDUser()->domicileMunicipality,
+                        'prov'=>$event->getSPIDUser()->domicileProvince,
+                        'stato'=>$event->getSPIDUser()->domicileNation,
+                    ]);
+
+                $logActivity= logActivity::create([
+                    'user_id'=>$UserMetadata->id,
+                    'name'=>$event->getSPIDUser()->name,
+                    'familyname'=>$event->getSPIDUser()->familyName,
+                    'codicefiscale'=>$event->getSPIDUser()->fiscalNumber,
+                    'activity'=>"create",
+                    'ip'=>request()->ip(),
+                    'area'=>"access",
+                    'typeoflog'=>"spid",
+                ]);
+                    }
+
+                }
+                return redirect ('user/dashboard');
+        }
+        else{
+		    session()->put('user_id',$UserMetadatacheck->id);
+            session()->put('codicefiscale',$UserMetadatacheck->codicefiscale);
+            session()->put('name',$UserMetadatacheck->name);
+            session()->put('familyname',$UserMetadatacheck->familyname);
+            $logActivity= logActivity::create([
+                'user_id'=>session('user_id'),
+                'name'=>$event->getSPIDUser()->name,
+                'familyname'=>$event->getSPIDUser()->familyName,
+                'codicefiscale'=>$event->getSPIDUser()->fiscalNumber,
+                'activity'=>"login",
+				'ip'=>request()->ip(),
+                'area'=>"access",
+                'typeoflog'=>"spid",
+            ]);
+		}
+    }
+
+    /**
+     * Handle SPID logout events.
+     */
+    public function onSPIDLogout($event) {
+        Config::set('constants.customerSpidCtrl',0);
+		$user_id=session('user_id');
+		session()->forget('user_id');
+        session()->forget('codicefiscale');
+        session()->forget('name');
+        session()->forget('familyname');
+        Log::info('SPID User ' . $event->getSPIDUser()->name . ' ' . $event->getSPIDUser()->familyName . ' logged out using ' . $event->getIdp() . ' Identity Provider.');
+        $logActivity= logActivity::create([
+            'user_id'=>$user_id,
+            'name'=>$event->getSPIDUser()->name,
+            'familyname'=>$event->getSPIDUser()->familyName,
+            'codicefiscale'=>$event->getSPIDUser()->fiscalNumber,
+            'activity'=>"logout",
+			'ip'=>request()->ip(),
+            'area'=>"access",
+            'typeoflog'=>"spid",
+        ]);
+    }
+
+    /**
+     * Register the listeners for the subscriber.
+     *
+     * @param  Illuminate\Events\Dispatcher $events
+     */
+    public function subscribe($events)
+    {
+        $events->listen(
+            'App\Events\LoginEvent',
+            'App\Listeners\SPIDEventSubscriber@onSPIDLogin'
+        );
+
+        $events->listen(
+            'App\Events\LogoutEvent',
+            'App\Listeners\SPIDEventSubscriber@onSPIDLogout'
+        );
+    }
+
+}

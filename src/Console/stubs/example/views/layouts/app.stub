@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>{{__(config('app.name'))}}</title>
+
+    <link rel="stylesheet" href="{{asset ('css/app.css')}}">
+    @yield("css")
+</head>
+<body id="app-layout">
+<div style="background-color: #5c88a75e;">
+    @yield('content')
+</div>
+
+
+
+<script>window.__PUBLIC_PATH__ = '{{ asset('vendor/bootstrap-italia/dist/fonts') }}'</script>
+<script src="{{asset('js/app.js')}}"></script>
+<!-- add jquery before bootstrap -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js" crossorigin="anonymous"></script>
+<script src="{{asset('js/bootstrap-italia.bundle.min.js')}}"></script>
+<script src="{{asset('js/main.js')}}"></script>
+
+</body>
+</html>
