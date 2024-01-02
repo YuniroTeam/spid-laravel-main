@@ -34,8 +34,8 @@ use OneLogin\Saml2\Utils;
 use OneLogin\Saml2\Utils as SAMLUtils;
 use OneLogin\Saml2\ValidationError as SAMLValidationError;
 use RuntimeException;
-use App\Customer;
-use App\UserMetadata;
+use App\Models\Customer;
+use App\Models\UserMetadata;
 use Illuminate\Support\Facades\Crypt;
 
 

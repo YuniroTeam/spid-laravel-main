@@ -11,8 +11,8 @@ use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use App\Middleware;
-use App\SPIDAuth;
-use App\CustomersMetadata;
+use App\Models\SPIDAuth;
+use App\Models\CustomersMetadata;
 
 class SPIDServiceProvider extends ServiceProvider
 {

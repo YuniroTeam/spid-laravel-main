@@ -1,10 +1,10 @@
 <?php
 
 namespace App\Listeners;
-use App\UserAddress;
-use App\UserMetadata;
-use App\UserAnagrafica;
-use App\LogActivity;
+use App\Models\UserAddress;
+use App\Models\UserMetadata;
+use App\Models\UserAnagrafica;
+use App\Models\LogActivity;
 use App\Events\LoginEvent;
 use App\Events\LogoutEvent;
 use Illuminate\Support\Facades\Config;
